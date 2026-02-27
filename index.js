@@ -48,6 +48,11 @@ app.get('/', (req, res) => {
   res.send('WhatsApp Automation Server Running ✅');
 });
 
+client.on('qr', (qr) => {
+    res.send(`<img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${qr}" />`);
+  });
+});
+
 app.listen(3000, () => {
   console.log("Server running on port 3000");
 });
