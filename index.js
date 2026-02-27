@@ -10,11 +10,23 @@ app.use(cors());
 app.use(express.json());
 
 const client = new Client({
-  authStrategy: new LocalAuth()
+  authStrategy: new LocalAuth(),
+  puppeteer: {
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process"
+    ],
+    headless: true
+  }
 });
 
 client.on("qr", qr => {
-  console.log("Scan this QR:");
+  console.log("Scan QR below:");
   qrcode.generate(qr, { small: true });
 });
 
@@ -25,30 +37,11 @@ client.on("ready", () => {
 client.initialize();
 
 app.post("/send-ticket", async (req, res) => {
-  const {
-    phone,
-    fromStation,
-    toStation,
-    trainName,
-    trainNumber,
-    classType,
-    ticketType
-  } = req.body;
+  const { phone, message } = req.body;
 
   try {
-    const message =
-`🎫 NEW TICKET
-
-From: ${fromStation}
-To: ${toStation}
-Train: ${trainName} (${trainNumber})
-Class: ${classType}
-Type: ${ticketType}`;
-
     await client.sendMessage(phone + "@c.us", message);
-
     res.json({ success: true });
-
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: "Failed" });
