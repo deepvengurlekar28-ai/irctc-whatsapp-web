@@ -7,12 +7,7 @@ const { Client, LocalAuth } = pkg;
 const app = express();
 app.use(express.json());
 
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  }
-});
+const clients = {};
 
 client.initialize();
 
@@ -27,28 +22,62 @@ client.on('ready', () => {
   console.log('WhatsApp Client is Ready!');
 });
 
-app.get('/qr', (req, res) => {
-  if (qrCodeData) {
-    res.send(`<img src="${qrCodeData}" />`);
+app.get('/qr/:workerId', (req, res) => {
+  const { workerId } = req.params;
+
+  if (!clients[workerId]) {
+    createClient(workerId);
+    return res.send("Generating QR... Refresh in 5 seconds.");
+  }
+
+  if (clients[workerId].qr) {
+    res.send(`<img src="${clients[workerId].qr}" />`);
   } else {
-    res.send('QR not generated yet');
+    res.send("QR not ready yet. Refresh.");
   }
 });
 
-app.post('/send', async (req, res) => {
+app.post('/send/:workerId', async (req, res) => {
+  const { workerId } = req.params;
   const { number, message } = req.body;
 
-  if (!number || !message) {
-    return res.status(400).send('Number and message required');
+  if (!clients[workerId]) {
+    return res.status(400).send("Worker not initialized");
   }
 
   try {
-    await client.sendMessage(`${number}@c.us`, message);
-    res.send('Message Sent ✅');
+    await clients[workerId].client.sendMessage(`${number}@c.us`, message);
+    res.send("Message Sent ✅");
   } catch (error) {
-    res.status(500).send('Error sending message');
+    res.status(500).send("Error sending message");
   }
 });
+
+function createClient(workerId) {
+  const client = new Client({
+    authStrategy: new LocalAuth({
+      clientId: workerId   // 🔥 this is important
+    }),
+    puppeteer: {
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    }
+  });
+
+  client.initialize();
+
+  clients[workerId] = {
+    client,
+    qr: ''
+  };
+
+  client.on('qr', async (qr) => {
+    clients[workerId].qr = await qrcode.toDataURL(qr);
+  });
+
+  client.on('ready', () => {
+    console.log(`Worker ${workerId} WhatsApp Ready`);
+  });
+}
 
 const PORT = process.env.PORT || 3000;
 
