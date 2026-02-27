@@ -1,5 +1,6 @@
 import express from 'express';
 import pkg from 'whatsapp-web.js';
+import qrcode from 'qrcode';
 
 const { Client, LocalAuth } = pkg;
 
@@ -15,16 +16,23 @@ const client = new Client({
 
 client.initialize();
 
-client.on('qr', (qr) => {
-  console.log('QR RECEIVED:', qr);
+let qrCodeData = '';
+
+client.on('qr', async (qr) => {
+  console.log('QR RECEIVED');
+  qrCodeData = await qrcode.toDataURL(qr);
 });
 
 client.on('ready', () => {
   console.log('WhatsApp Client is Ready!');
 });
 
-app.get('/', (req, res) => {
-  res.send('WhatsApp Automation Server Running ✅');
+app.get('/qr', (req, res) => {
+  if (qrCodeData) {
+    res.send(`<img src="${qrCodeData}" />`);
+  } else {
+    res.send('QR not generated yet');
+  }
 });
 
 app.post('/send', async (req, res) => {
