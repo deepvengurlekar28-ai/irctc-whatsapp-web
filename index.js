@@ -1,58 +1,49 @@
-import express from "express";
-import cors from "cors";
-import pkg from "whatsapp-web.js";
-import qrcode from "qrcode-terminal";
+import express from 'express';
+import pkg from 'whatsapp-web.js';
 
 const { Client, LocalAuth } = pkg;
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox"
-    ],
-    headless: true
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   }
-});
-
-client.on("qr", qr => {
-  console.log("Scan QR below:");
-  qrcode.generate(qr, { small: true });
-});
-
-client.on("ready", () => {
-  console.log("WhatsApp Client Ready!");
 });
 
 client.initialize();
 
-app.post("/send-ticket", async (req, res) => {
-  const { phone, message } = req.body;
+client.on('qr', (qr) => {
+  console.log('QR RECEIVED:', qr);
+});
 
-  try {
-    await client.sendMessage(phone + "@c.us", message);
-    res.json({ success: true });
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ error: "Failed" });
-  }
+client.on('ready', () => {
+  console.log('WhatsApp Client is Ready!');
 });
 
 app.get('/', (req, res) => {
   res.send('WhatsApp Automation Server Running ✅');
 });
 
-client.on('qr', (qr) => {
-    res.send(`<img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${qr}" />`);
-  });
+app.post('/send', async (req, res) => {
+  const { number, message } = req.body;
+
+  if (!number || !message) {
+    return res.status(400).send('Number and message required');
+  }
+
+  try {
+    await client.sendMessage(`${number}@c.us`, message);
+    res.send('Message Sent ✅');
+  } catch (error) {
+    res.status(500).send('Error sending message');
+  }
 });
 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
