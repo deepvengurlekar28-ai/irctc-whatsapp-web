@@ -68,6 +68,16 @@ function createClient(userId) {
   client.initialize();
 }
 
+client.on('disconnected', async () => {
+    console.log(`User ${userId} disconnected`);
+
+    try {
+        await client.destroy();
+    } catch (e) {}
+
+    delete clients[userId];
+});
+
 
 /* ===============================
    STATUS CHECK
