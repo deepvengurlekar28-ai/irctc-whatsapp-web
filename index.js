@@ -58,14 +58,15 @@ function createClient(userId) {
 
   /* DISCONNECTED EVENT */
   client.on('disconnected', async () => {
+
     console.log(`User ${userId} disconnected`);
 
     try {
-      await client.destroy();
+        await client.destroy();
     } catch (e) {}
 
     delete clients[userId];
-  });
+});
 
   /* AUTH FAILURE */
   client.on('auth_failure', (msg) => {
@@ -84,6 +85,11 @@ app.get('/status/:userId', (req, res) => {
   const { userId } = req.params;
 
   if (!clients[userId]) {
+    return res.json({ status: "not_initialized" });
+  }
+
+  if (!clients[userId].client) {
+    delete clients[userId];
     return res.json({ status: "not_initialized" });
   }
 
@@ -153,33 +159,36 @@ app.post('/logout/:userId', async (req, res) => {
 
   const { userId } = req.params;
 
-  if (!clients[userId]) {
-    return res.json({ success: false });
+  const userClient = clients[userId];
+
+  if (!userClient) {
+    return res.json({ success: true });
   }
 
   try {
-    await clients[userId].client.logout();
-    await clients[userId].client.destroy();
 
-    delete clients[userId];
+    // Try logout (ignore failure)
+    try {
+      await userClient.client.logout();
+    } catch (e) {
+      console.log("Logout error ignored");
+    }
 
-    res.json({ success: true });
+    // Always destroy
+    try {
+      await userClient.client.destroy();
+    } catch (e) {
+      console.log("Destroy error ignored");
+    }
 
-  } catch (error) {
-    console.error("Logout error:", error);
-    res.status(500).json({ success: false });
+  } catch (e) {
+    console.log("General logout error");
   }
-});
 
-/* ===============================
-   HEALTH CHECK
-=================================*/
-app.get('/', (req, res) => {
-  res.send("WhatsApp User-Based Server Running 🚀");
-});
+  // Always delete from memory
+  delete clients[userId];
 
-const PORT = process.env.PORT || 8080;
+  console.log(`User ${userId} fully logged out`);
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  return res.json({ success: true });
 });
