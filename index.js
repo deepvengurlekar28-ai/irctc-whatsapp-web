@@ -44,44 +44,37 @@ function createClient(userId) {
     ready: false
   };
 
+  /* QR EVENT */
   client.on('qr', async (qr) => {
     console.log(`QR RECEIVED for ${userId}`);
     clients[userId].qr = await qrcode.toDataURL(qr);
   });
 
+  /* READY EVENT */
   client.on('ready', () => {
     console.log(`User ${userId} WhatsApp Ready`);
     clients[userId].ready = true;
   });
 
+  /* DISCONNECTED EVENT */
   client.on('disconnected', async () => {
     console.log(`User ${userId} disconnected`);
 
     try {
-        await client.destroy();
+      await client.destroy();
     } catch (e) {}
 
     delete clients[userId];
-});
+  });
 
+  /* AUTH FAILURE */
   client.on('auth_failure', (msg) => {
     console.log(`Auth failure for ${userId}:`, msg);
-    clients[userId].ready = false;
+    delete clients[userId];
   });
 
   client.initialize();
 }
-
-client.on('disconnected', async () => {
-    console.log(`User ${userId} disconnected`);
-
-    try {
-        await client.destroy();
-    } catch (e) {}
-
-    delete clients[userId];
-});
-
 
 /* ===============================
    STATUS CHECK
@@ -94,13 +87,12 @@ app.get('/status/:userId', (req, res) => {
     return res.json({ status: "not_initialized" });
   }
 
-  if (clients[userId].ready) {
+  if (clients[userId].ready === true) {
     return res.json({ status: "ready" });
   }
 
-  res.json({ status: "not_ready" });
+  return res.json({ status: "not_ready" });
 });
-
 
 /* ===============================
    GET QR
@@ -111,10 +103,10 @@ app.get('/qr/:userId', async (req, res) => {
 
   if (!clients[userId]) {
     createClient(userId);
-    return res.send("Generating QR... Refresh in 5 seconds.");
+    return res.send("Generating QR... Refreshing...");
   }
 
-  if (clients[userId].ready) {
+  if (clients[userId].ready === true) {
     return res.send("WhatsApp already connected ✅");
   }
 
@@ -122,9 +114,8 @@ app.get('/qr/:userId', async (req, res) => {
     return res.send(`<img src="${clients[userId].qr}" width="300"/>`);
   }
 
-  res.send("QR not ready yet. Refresh.");
+  res.send("QR not ready yet...");
 });
-
 
 /* ===============================
    SEND MESSAGE
@@ -155,7 +146,6 @@ app.post('/send/:userId', async (req, res) => {
   }
 });
 
-
 /* ===============================
    LOGOUT
 =================================*/
@@ -181,14 +171,12 @@ app.post('/logout/:userId', async (req, res) => {
   }
 });
 
-
 /* ===============================
    HEALTH CHECK
 =================================*/
 app.get('/', (req, res) => {
   res.send("WhatsApp User-Based Server Running 🚀");
 });
-
 
 const PORT = process.env.PORT || 8080;
 
