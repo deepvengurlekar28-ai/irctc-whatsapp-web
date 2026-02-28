@@ -1,25 +1,28 @@
 import express from 'express';
 import pkg from 'whatsapp-web.js';
 import qrcode from 'qrcode';
+import cors from 'cors';
 
 const { Client, LocalAuth } = pkg;
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 const clients = {};
 
 /* ===============================
-   CREATE CLIENT PER WORKER
+   CREATE CLIENT PER USER (UID)
 =================================*/
-function createClient(workerId) {
-  if (clients[workerId]) return;
+function createClient(userId) {
 
-  console.log(`Creating client for worker: ${workerId}`);
+  if (clients[userId]) return;
+
+  console.log(`Creating client for user: ${userId}`);
 
   const client = new Client({
     authStrategy: new LocalAuth({
-      clientId: workerId
+      clientId: userId
     }),
     puppeteer: {
       headless: true,
@@ -35,80 +38,102 @@ function createClient(workerId) {
     }
   });
 
-  clients[workerId] = {
+  clients[userId] = {
     client,
     qr: '',
     ready: false
   };
 
   client.on('qr', async (qr) => {
-    console.log(`QR RECEIVED for ${workerId}`);
-    clients[workerId].qr = await qrcode.toDataURL(qr);
+    console.log(`QR RECEIVED for ${userId}`);
+    clients[userId].qr = await qrcode.toDataURL(qr);
   });
 
   client.on('ready', () => {
-    console.log(`Worker ${workerId} WhatsApp Ready`);
-    clients[workerId].ready = true;
+    console.log(`User ${userId} WhatsApp Ready`);
+    clients[userId].ready = true;
   });
 
   client.on('disconnected', () => {
-    console.log(`Worker ${workerId} disconnected`);
-    clients[workerId].ready = false;
+    console.log(`User ${userId} disconnected`);
+    clients[userId].ready = false;
+    delete clients[userId];
   });
 
   client.on('auth_failure', (msg) => {
-    console.log(`Auth failure for ${workerId}:`, msg);
-    clients[workerId].ready = false;
+    console.log(`Auth failure for ${userId}:`, msg);
+    clients[userId].ready = false;
   });
 
   client.initialize();
 }
 
-/* ===============================
-   GET QR PER WORKER
-=================================*/
-app.get('/qr/:workerId', async (req, res) => {
-  const { workerId } = req.params;
 
-  if (!clients[workerId]) {
-    createClient(workerId);
+/* ===============================
+   STATUS CHECK
+=================================*/
+app.get('/status/:userId', (req, res) => {
+
+  const { userId } = req.params;
+
+  if (!clients[userId]) {
+    return res.json({ status: "not_initialized" });
+  }
+
+  if (clients[userId].ready) {
+    return res.json({ status: "ready" });
+  }
+
+  res.json({ status: "not_ready" });
+});
+
+
+/* ===============================
+   GET QR
+=================================*/
+app.get('/qr/:userId', async (req, res) => {
+
+  const { userId } = req.params;
+
+  if (!clients[userId]) {
+    createClient(userId);
     return res.send("Generating QR... Refresh in 5 seconds.");
   }
 
-  if (clients[workerId].ready) {
+  if (clients[userId].ready) {
     return res.send("WhatsApp already connected ✅");
   }
 
-  if (clients[workerId].qr) {
-    return res.send(`<img src="${clients[workerId].qr}" />`);
+  if (clients[userId].qr) {
+    return res.send(`<img src="${clients[userId].qr}" width="300"/>`);
   }
 
   res.send("QR not ready yet. Refresh.");
 });
 
-/* ===============================
-   SEND MESSAGE PER WORKER
-=================================*/
-app.post('/send/:workerId', async (req, res) => {
-  const { workerId } = req.params;
-  const { number, message } = req.body;
 
-  const worker = clients[workerId];
+/* ===============================
+   SEND MESSAGE
+=================================*/
+app.post('/send/:userId', async (req, res) => {
+
+  const { userId } = req.params;
+  const { number, message } = req.body;
 
   if (!number || !message) {
     return res.status(400).send("Number and message required");
   }
 
-  if (!worker) {
-    return res.status(400).send("Worker not initialized");
+  if (!clients[userId]) {
+    return res.status(400).send("Client not initialized");
   }
 
-  if (!worker.ready) {
+  if (!clients[userId].ready) {
     return res.status(400).send("WhatsApp not ready");
   }
 
   try {
-    await worker.client.sendMessage(`${number}@c.us`, message);
+    await clients[userId].client.sendMessage(`${number}@c.us`, message);
     res.send("Message Sent ✅");
   } catch (error) {
     console.error("Send Error:", error);
@@ -116,12 +141,40 @@ app.post('/send/:workerId', async (req, res) => {
   }
 });
 
+
+/* ===============================
+   LOGOUT
+=================================*/
+app.post('/logout/:userId', async (req, res) => {
+
+  const { userId } = req.params;
+
+  if (!clients[userId]) {
+    return res.json({ success: false });
+  }
+
+  try {
+    await clients[userId].client.logout();
+    await clients[userId].client.destroy();
+
+    delete clients[userId];
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({ success: false });
+  }
+});
+
+
 /* ===============================
    HEALTH CHECK
 =================================*/
 app.get('/', (req, res) => {
-  res.send("WhatsApp Multi Worker Server Running 🚀");
+  res.send("WhatsApp User-Based Server Running 🚀");
 });
+
 
 const PORT = process.env.PORT || 8080;
 
