@@ -54,11 +54,15 @@ function createClient(userId) {
     clients[userId].ready = true;
   });
 
-  client.on('disconnected', () => {
+  client.on('disconnected', async () => {
     console.log(`User ${userId} disconnected`);
-    clients[userId].ready = false;
+
+    try {
+        await client.destroy();
+    } catch (e) {}
+
     delete clients[userId];
-  });
+});
 
   client.on('auth_failure', (msg) => {
     console.log(`Auth failure for ${userId}:`, msg);
