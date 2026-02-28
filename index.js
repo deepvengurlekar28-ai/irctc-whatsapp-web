@@ -20,23 +20,23 @@ function createClient(userId) {
 
   console.log(`Creating client for user: ${userId}`);
 
-  const client = new Client({
-    authStrategy: new LocalAuth({
-      clientId: userId
-    }),
-    puppeteer: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-zygote',
-        '--single-process'
-      ],
-      protocolTimeout: 120000
-    }
-  });
+ const client = new Client({
+  authStrategy: new LocalAuth({
+    clientId: userId
+  }),
+  puppeteer: {
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process'
+    ]
+  }
+});
 
   clients[userId] = {
     client,
