@@ -28,6 +28,6 @@ COPY . .
 
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-EXPOSE 3000
+EXPOSE 8080
 
 CMD ["node", "index.js"]
