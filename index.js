@@ -78,10 +78,7 @@ function createClient(userId) {
     delete clients[userId];
 
     // recreate after small delay
-    setTimeout(() => {
-      createClient(userId);
-    }, 3000);
-  });
+    
 
   client.on('auth_failure', async (msg) => {
     console.log(`Auth failure for ${userId}:`, msg);
