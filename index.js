@@ -76,10 +76,18 @@ function createClient(userId) {
     clients[userId].ready = true;
   });
 
-  /* DISCONNECTED EVENT */
-  client.on('disconnected', async () => {
+   client.on('change_state', state => {
+    console.log(`State changed for ${userId}:`, state);
 
-    console.log(`User ${userId} disconnected`);
+    if (state === "CONFLICT" || state === "UNPAIRED" || state === "UNPAIRED_IDLE") {
+        client.destroy();
+        delete clients[userId];
+    }
+});
+
+  /* DISCONNECTED EVENT */
+  client.on('disconnected', async (reason) => {
+    console.log(`User ${userId} disconnected:`, reason);
 
     try {
         await client.destroy();
@@ -102,39 +110,30 @@ function createClient(userId) {
 =================================*/
 app.get('/status/:userId', async (req, res) => {
 
-  const { userId } = req.params;
+    const { userId } = req.params;
 
-  const userClient = clients[userId];
+    const userClient = clients[userId];
 
-  if (!userClient || !userClient.client) {
-    return res.json({ status: "not_initialized" });
-  }
-
-  try {
-
-    const state = await userClient.client.getState();
-
-    if (state === "CONNECTED") {
-      return res.json({ status: "ready" });
-    } else {
-      return res.json({ status: "not_ready" });
+    if (!userClient) {
+        return res.json({ status: "not_initialized" });
     }
 
-  } catch (error) {
-
-    console.log("State error:", error);
-
-    // If state check fails, destroy client
     try {
-      await userClient.client.destroy();
-    } catch (e) {}
+        const state = await userClient.client.getState();
 
-    delete clients[userId];
+        if (state !== "CONNECTED") {
+            await userClient.client.destroy();
+            delete clients[userId];
+            return res.json({ status: "not_initialized" });
+        }
 
-    return res.json({ status: "not_initialized" });
-  }
+        return res.json({ status: "ready" });
+
+    } catch (e) {
+        delete clients[userId];
+        return res.json({ status: "not_initialized" });
+    }
 });
-
 /* ===============================
    GET QR
 =================================*/
