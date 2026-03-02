@@ -100,24 +100,39 @@ function createClient(userId) {
 /* ===============================
    STATUS CHECK
 =================================*/
-app.get('/status/:userId', (req, res) => {
+app.get('/status/:userId', async (req, res) => {
 
   const { userId } = req.params;
 
-  if (!clients[userId]) {
+  const userClient = clients[userId];
+
+  if (!userClient || !userClient.client) {
     return res.json({ status: "not_initialized" });
   }
 
-  if (!clients[userId].client) {
+  try {
+
+    const state = await userClient.client.getState();
+
+    if (state === "CONNECTED") {
+      return res.json({ status: "ready" });
+    } else {
+      return res.json({ status: "not_ready" });
+    }
+
+  } catch (error) {
+
+    console.log("State error:", error);
+
+    // If state check fails, destroy client
+    try {
+      await userClient.client.destroy();
+    } catch (e) {}
+
     delete clients[userId];
+
     return res.json({ status: "not_initialized" });
   }
-
-  if (clients[userId].ready === true) {
-    return res.json({ status: "ready" });
-  }
-
-  return res.json({ status: "not_ready" });
 });
 
 /* ===============================
