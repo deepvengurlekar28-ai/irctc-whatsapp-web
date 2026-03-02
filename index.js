@@ -90,9 +90,17 @@ function createClient(userId) {
     delete clients[userId];
   });
 
-  client.on('error', (err) => {
-    console.log("Client error:", err);
-  });
+  client.on('error', async (err) => {
+  console.log("Client error:", err);
+
+  try { await client.destroy(); } catch {}
+
+  delete clients[userId];
+
+  setTimeout(() => {
+    createClient(userId);
+  }, 3000);
+});
 
   client.initialize();
 }
@@ -155,7 +163,6 @@ app.get('/qr/:userId', (req, res) => {
 app.post('/send/:userId', async (req, res) => {
 
   try {
-
     const { userId } = req.params;
     const { number, message } = req.body;
 
@@ -173,19 +180,22 @@ app.post('/send/:userId', async (req, res) => {
       return res.status(400).send("WhatsApp not ready");
     }
 
-    const state = await userClient.client.getState();
-
-    if (state !== "CONNECTED") {
-      return res.status(400).send("WhatsApp not connected");
-    }
-
     await userClient.client.sendMessage(`${number}@c.us`, message);
 
-    res.send("Message Sent ✅");
+    return res.send("Message Sent ✅");
 
   } catch (error) {
-    console.error("SEND ERROR:", error);
-    res.status(500).send("Internal send error");
+
+    console.log("SEND ERROR:", error);
+
+    // if chromium crashed → destroy client safely
+    try {
+      await clients[req.params.userId]?.client.destroy();
+    } catch {}
+
+    delete clients[req.params.userId];
+
+    return res.status(500).send("WhatsApp session crashed. Reconnect required.");
   }
 
 });
