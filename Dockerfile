@@ -26,6 +26,10 @@ RUN npm install
 
 COPY . .
 
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV NODE_OPTIONS="--max-old-space-size=768"
+
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PORT=8080
 
