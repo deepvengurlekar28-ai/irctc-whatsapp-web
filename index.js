@@ -205,11 +205,7 @@ app.post('/logout/:userId', async (req, res) => {
     console.log("General logout error");
   }
 
-   const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+  
 
   // Always delete from memory
   delete clients[userId];
@@ -217,4 +213,10 @@ app.listen(PORT, () => {
   console.log(`User ${userId} fully logged out`);
 
   return res.json({ success: true });
+});
+
+ const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
