@@ -7,9 +7,6 @@ const { Client, LocalAuth } = pkg;
 
 const app = express();
 
-/* ===============================
-   CORS (ALLOW ALL FOR NOW)
-=================================*/
 app.use(cors({
   origin: true,
   credentials: true
@@ -38,51 +35,74 @@ function createClient(userId) {
   const client = new Client({
     authStrategy: new LocalAuth({
       clientId: userId
+      // If using Railway volume:
+      // dataPath: '/app/.wwebjs_auth'
     }),
     puppeteer: {
       headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage'
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
       ]
     }
   });
 
   clients[userId] = {
     client,
-    qr: '',
+    qr: null,
     ready: false
   };
 
+  /* QR EVENT */
   client.on('qr', async (qr) => {
     console.log(`QR RECEIVED for ${userId}`);
     clients[userId].qr = await qrcode.toDataURL(qr);
+    clients[userId].ready = false;
   });
 
+  /* READY EVENT */
   client.on('ready', () => {
     console.log(`User ${userId} WhatsApp Ready`);
     clients[userId].ready = true;
+    clients[userId].qr = null;
   });
 
+  /* DISCONNECTED EVENT */
   client.on('disconnected', async (reason) => {
     console.log(`User ${userId} disconnected:`, reason);
+
     try { await client.destroy(); } catch {}
+
     delete clients[userId];
+
+    // AUTO recreate client (important)
+    setTimeout(() => {
+      createClient(userId);
+    }, 2000);
   });
 
-  client.on('auth_failure', () => {
+  /* AUTH FAILURE */
+  client.on('auth_failure', async () => {
     console.log(`Auth failure for ${userId}`);
+
+    try { await client.destroy(); } catch {}
+
     delete clients[userId];
+
+    setTimeout(() => {
+      createClient(userId);
+    }, 2000);
   });
 
   client.initialize();
 }
 
 /* ===============================
-   STATUS
+   STATUS (SIMPLE + SAFE)
 =================================*/
-app.get('/status/:userId', async (req, res) => {
+app.get('/status/:userId', (req, res) => {
 
   const { userId } = req.params;
   const userClient = clients[userId];
@@ -91,21 +111,15 @@ app.get('/status/:userId', async (req, res) => {
     return res.json({ status: "not_initialized" });
   }
 
-  try {
-    const state = await userClient.client.getState();
-
-    if (state !== "CONNECTED") {
-      await userClient.client.destroy();
-      delete clients[userId];
-      return res.json({ status: "not_initialized" });
-    }
-
+  if (userClient.ready) {
     return res.json({ status: "ready" });
-
-  } catch {
-    delete clients[userId];
-    return res.json({ status: "not_initialized" });
   }
+
+  if (userClient.qr) {
+    return res.json({ status: "qr_ready" });
+  }
+
+  return res.json({ status: "initializing" });
 });
 
 /* ===============================
@@ -117,7 +131,7 @@ app.get('/qr/:userId', (req, res) => {
 
   if (!clients[userId]) {
     createClient(userId);
-    return res.send("Generating QR... Refreshing...");
+    return res.send("Generating QR...");
   }
 
   if (clients[userId].ready) {
@@ -128,11 +142,11 @@ app.get('/qr/:userId', (req, res) => {
     return res.send(`<img src="${clients[userId].qr}" width="350"/>`);
   }
 
-  res.send("QR not ready yet...");
+  res.send("Generating QR...");
 });
 
 /* ===============================
-   SEND
+   SEND MESSAGE
 =================================*/
 app.post('/send/:userId', async (req, res) => {
 
@@ -187,7 +201,7 @@ app.post('/logout/:userId', async (req, res) => {
 /* ===============================
    START SERVER
 =================================*/
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
