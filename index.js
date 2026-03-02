@@ -54,6 +54,10 @@ function createClient(userId) {
     ready: false
   };
 
+   client.on('change_state', state => {
+  console.log('State changed:', state);
+});
+
   client.on('qr', async (qr) => {
     console.log(`QR RECEIVED for ${userId}`);
     clients[userId].qr = await qrcode.toDataURL(qr);
@@ -150,28 +154,41 @@ app.get('/qr/:userId', (req, res) => {
 =================================*/
 app.post('/send/:userId', async (req, res) => {
 
-  const { userId } = req.params;
-  const { number, message } = req.body;
-
-  if (!number || !message) {
-    return res.status(400).send("Number and message required");
-  }
-
-  const userClient = clients[userId];
-
-  if (!userClient || !userClient.ready) {
-    return res.status(400).send("WhatsApp not ready");
-  }
-
   try {
-    await userClient.client.sendMessage(`${number}@c.us`, message);
-    res.send("Message Sent ✅");
-  } catch (error) {
-    console.error("Send error:", error);
-    res.status(500).send("Error sending message");
-  }
-});
 
+    const { userId } = req.params;
+    const { number, message } = req.body;
+
+    if (!number || !message) {
+      return res.status(400).send("Number and message required");
+    }
+
+    const userClient = clients[userId];
+
+    if (!userClient) {
+      return res.status(400).send("Client not initialized");
+    }
+
+    if (!userClient.ready) {
+      return res.status(400).send("WhatsApp not ready");
+    }
+
+    const state = await userClient.client.getState();
+
+    if (state !== "CONNECTED") {
+      return res.status(400).send("WhatsApp not connected");
+    }
+
+    await userClient.client.sendMessage(`${number}@c.us`, message);
+
+    res.send("Message Sent ✅");
+
+  } catch (error) {
+    console.error("SEND ERROR:", error);
+    res.status(500).send("Internal send error");
+  }
+
+});
 /* ===============================
    LOGOUT
 =================================*/
