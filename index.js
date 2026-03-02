@@ -16,20 +16,16 @@ const allowedOrigins = [
 ];
 
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // allow non-browser requests
-    if (allowedOrigins.indexOf(origin) === -1) {
-      return callback(new Error('CORS not allowed'), false);
-    }
-    return callback(null, true);
-  },
-  methods: ["GET", "POST"],
+  origin: true,
   credentials: true
 }));
 
 app.use(express.json());
 
 const clients = {};
+app.get("/", (req, res) => {
+  res.send("Server running ✅");
+});
 
 /* ===============================
    CREATE CLIENT PER USER (UID)
