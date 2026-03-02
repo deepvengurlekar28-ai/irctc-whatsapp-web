@@ -34,15 +34,18 @@ function createClient(userId) {
       dataPath: '/app/.wwebjs_auth' // ⚠️ Mount Railway Volume Here
     }),
     puppeteer: {
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-      ]
-    }
+  headless: "new",
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--no-zygote',
+    '--single-process'
+  ]
+}
   });
 
   clients[userId] = {
