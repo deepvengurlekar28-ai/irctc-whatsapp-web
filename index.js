@@ -6,7 +6,27 @@ import cors from 'cors';
 const { Client, LocalAuth } = pkg;
 
 const app = express();
-app.use(cors());
+
+/* ===============================
+   CORS CONFIGURATION (FIXED)
+=================================*/
+const allowedOrigins = [
+  "https://irctc-tracker.web.app",
+  "http://localhost:3000"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // allow non-browser requests
+    if (allowedOrigins.indexOf(origin) === -1) {
+      return callback(new Error('CORS not allowed'), false);
+    }
+    return callback(null, true);
+  },
+  methods: ["GET", "POST"],
+  credentials: true
+}));
+
 app.use(express.json());
 
 const clients = {};
@@ -184,6 +204,12 @@ app.post('/logout/:userId', async (req, res) => {
   } catch (e) {
     console.log("General logout error");
   }
+
+   const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
   // Always delete from memory
   delete clients[userId];
