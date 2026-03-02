@@ -60,6 +60,14 @@ function createClient(userId) {
     clients[userId].ready = false;
   });
 
+   client.on('authenticated', () => {
+  console.log("Authenticated successfully");
+});
+
+   client.on('loading_screen', (percent, message) => {
+  console.log('Loading:', percent, message);
+});
+
   client.on('ready', () => {
     console.log(`User ${userId} WhatsApp Ready`);
     clients[userId].ready = true;
