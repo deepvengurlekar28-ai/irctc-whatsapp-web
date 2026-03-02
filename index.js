@@ -7,11 +7,7 @@ const { Client, LocalAuth } = pkg;
 
 const app = express();
 
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
-
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 const clients = {};
@@ -34,12 +30,12 @@ function createClient(userId) {
 
   const client = new Client({
     authStrategy: new LocalAuth({
-      clientId: userId
-      // If using Railway volume:
-      // dataPath: '/app/.wwebjs_auth'
+      clientId: userId,
+      dataPath: '/app/.wwebjs_auth' // ⚠️ Mount Railway Volume Here
     }),
     puppeteer: {
       headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -55,21 +51,22 @@ function createClient(userId) {
     ready: false
   };
 
-  /* QR EVENT */
   client.on('qr', async (qr) => {
     console.log(`QR RECEIVED for ${userId}`);
-    clients[userId].qr = await qrcode.toDataURL(qr);
-    clients[userId].ready = false;
+    try {
+      clients[userId].qr = await qrcode.toDataURL(qr);
+      clients[userId].ready = false;
+    } catch (e) {
+      console.log("QR generation error:", e);
+    }
   });
 
-  /* READY EVENT */
   client.on('ready', () => {
     console.log(`User ${userId} WhatsApp Ready`);
     clients[userId].ready = true;
     clients[userId].qr = null;
   });
 
-  /* DISCONNECTED EVENT */
   client.on('disconnected', async (reason) => {
     console.log(`User ${userId} disconnected:`, reason);
 
@@ -77,30 +74,29 @@ function createClient(userId) {
 
     delete clients[userId];
 
-    // AUTO recreate client (important)
+    // recreate after small delay
     setTimeout(() => {
       createClient(userId);
-    }, 2000);
+    }, 3000);
   });
 
-  /* AUTH FAILURE */
-  client.on('auth_failure', async () => {
-    console.log(`Auth failure for ${userId}`);
+  client.on('auth_failure', async (msg) => {
+    console.log(`Auth failure for ${userId}:`, msg);
 
     try { await client.destroy(); } catch {}
 
     delete clients[userId];
+  });
 
-    setTimeout(() => {
-      createClient(userId);
-    }, 2000);
+  client.on('error', (err) => {
+    console.log("Client error:", err);
   });
 
   client.initialize();
 }
 
 /* ===============================
-   STATUS (SIMPLE + SAFE)
+   STATUS
 =================================*/
 app.get('/status/:userId', (req, res) => {
 
@@ -139,7 +135,13 @@ app.get('/qr/:userId', (req, res) => {
   }
 
   if (clients[userId].qr) {
-    return res.send(`<img src="${clients[userId].qr}" width="350"/>`);
+    return res.send(`
+      <html>
+        <body style="margin:0;display:flex;justify-content:center;align-items:center;background:white;">
+          <img src="${clients[userId].qr}" width="380" height="380"/>
+        </body>
+      </html>
+    `);
   }
 
   res.send("Generating QR...");
@@ -159,11 +161,7 @@ app.post('/send/:userId', async (req, res) => {
 
   const userClient = clients[userId];
 
-  if (!userClient) {
-    return res.status(400).send("Client not initialized");
-  }
-
-  if (!userClient.ready) {
+  if (!userClient || !userClient.ready) {
     return res.status(400).send("WhatsApp not ready");
   }
 
@@ -171,7 +169,7 @@ app.post('/send/:userId', async (req, res) => {
     await userClient.client.sendMessage(`${number}@c.us`, message);
     res.send("Message Sent ✅");
   } catch (error) {
-    console.error(error);
+    console.error("Send error:", error);
     res.status(500).send("Error sending message");
   }
 });
@@ -197,6 +195,13 @@ app.post('/logout/:userId', async (req, res) => {
 
   res.json({ success: true });
 });
+
+/* ===============================
+   KEEP SERVER ALIVE (RAILWAY FIX)
+=================================*/
+setInterval(() => {
+  console.log("Server heartbeat...");
+}, 30000);
 
 /* ===============================
    START SERVER
