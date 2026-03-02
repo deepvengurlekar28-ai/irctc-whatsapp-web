@@ -8,13 +8,8 @@ const { Client, LocalAuth } = pkg;
 const app = express();
 
 /* ===============================
-   CORS CONFIGURATION (FIXED)
+   CORS (ALLOW ALL FOR NOW)
 =================================*/
-const allowedOrigins = [
-  "https://irctc-tracker.web.app",
-  "http://localhost:3000"
-];
-
 app.use(cors({
   origin: true,
   credentials: true
@@ -23,12 +18,16 @@ app.use(cors({
 app.use(express.json());
 
 const clients = {};
+
+/* ===============================
+   HEALTH CHECK
+=================================*/
 app.get("/", (req, res) => {
   res.send("Server running ✅");
 });
 
 /* ===============================
-   CREATE CLIENT PER USER (UID)
+   CREATE CLIENT
 =================================*/
 function createClient(userId) {
 
@@ -36,23 +35,19 @@ function createClient(userId) {
 
   console.log(`Creating client for user: ${userId}`);
 
- const client = new Client({
-  authStrategy: new LocalAuth({
-    clientId: userId
-  }),
-  puppeteer: {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-zygote',
-      '--single-process'
-    ]
-  }
-});
+  const client = new Client({
+    authStrategy: new LocalAuth({
+      clientId: userId
+    }),
+    puppeteer: {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
+    }
+  });
 
   clients[userId] = {
     client,
@@ -60,41 +55,24 @@ function createClient(userId) {
     ready: false
   };
 
-  /* QR EVENT */
   client.on('qr', async (qr) => {
     console.log(`QR RECEIVED for ${userId}`);
     clients[userId].qr = await qrcode.toDataURL(qr);
   });
 
-  /* READY EVENT */
   client.on('ready', () => {
     console.log(`User ${userId} WhatsApp Ready`);
     clients[userId].ready = true;
   });
 
-   client.on('change_state', state => {
-    console.log(`State changed for ${userId}:`, state);
-
-    if (state === "CONFLICT" || state === "UNPAIRED" || state === "UNPAIRED_IDLE") {
-        client.destroy();
-        delete clients[userId];
-    }
-});
-
-  /* DISCONNECTED EVENT */
   client.on('disconnected', async (reason) => {
     console.log(`User ${userId} disconnected:`, reason);
-
-    try {
-        await client.destroy();
-    } catch (e) {}
-
+    try { await client.destroy(); } catch {}
     delete clients[userId];
-});
+  });
 
-  /* AUTH FAILURE */
-  client.on('auth_failure', (msg) => {
-    console.log(`Auth failure for ${userId}:`, msg);
+  client.on('auth_failure', () => {
+    console.log(`Auth failure for ${userId}`);
     delete clients[userId];
   });
 
@@ -102,38 +80,38 @@ function createClient(userId) {
 }
 
 /* ===============================
-   STATUS CHECK
+   STATUS
 =================================*/
 app.get('/status/:userId', async (req, res) => {
 
-    const { userId } = req.params;
+  const { userId } = req.params;
+  const userClient = clients[userId];
 
-    const userClient = clients[userId];
+  if (!userClient) {
+    return res.json({ status: "not_initialized" });
+  }
 
-    if (!userClient) {
-        return res.json({ status: "not_initialized" });
+  try {
+    const state = await userClient.client.getState();
+
+    if (state !== "CONNECTED") {
+      await userClient.client.destroy();
+      delete clients[userId];
+      return res.json({ status: "not_initialized" });
     }
 
-    try {
-        const state = await userClient.client.getState();
+    return res.json({ status: "ready" });
 
-        if (state !== "CONNECTED") {
-            await userClient.client.destroy();
-            delete clients[userId];
-            return res.json({ status: "not_initialized" });
-        }
-
-        return res.json({ status: "ready" });
-
-    } catch (e) {
-        delete clients[userId];
-        return res.json({ status: "not_initialized" });
-    }
+  } catch {
+    delete clients[userId];
+    return res.json({ status: "not_initialized" });
+  }
 });
+
 /* ===============================
-   GET QR
+   QR
 =================================*/
-app.get('/qr/:userId', async (req, res) => {
+app.get('/qr/:userId', (req, res) => {
 
   const { userId } = req.params;
 
@@ -142,19 +120,19 @@ app.get('/qr/:userId', async (req, res) => {
     return res.send("Generating QR... Refreshing...");
   }
 
-  if (clients[userId].ready === true) {
+  if (clients[userId].ready) {
     return res.send("WhatsApp already connected ✅");
   }
 
   if (clients[userId].qr) {
-    return res.send(`<img src="${clients[userId].qr}" width="300"/>`);
+    return res.send(`<img src="${clients[userId].qr}" width="350"/>`);
   }
 
   res.send("QR not ready yet...");
 });
 
 /* ===============================
-   SEND MESSAGE
+   SEND
 =================================*/
 app.post('/send/:userId', async (req, res) => {
 
@@ -165,19 +143,21 @@ app.post('/send/:userId', async (req, res) => {
     return res.status(400).send("Number and message required");
   }
 
-  if (!clients[userId]) {
+  const userClient = clients[userId];
+
+  if (!userClient) {
     return res.status(400).send("Client not initialized");
   }
 
-  if (!clients[userId].ready) {
+  if (!userClient.ready) {
     return res.status(400).send("WhatsApp not ready");
   }
 
   try {
-    await clients[userId].client.sendMessage(`${number}@c.us`, message);
+    await userClient.client.sendMessage(`${number}@c.us`, message);
     res.send("Message Sent ✅");
   } catch (error) {
-    console.error("Send Error:", error);
+    console.error(error);
     res.status(500).send("Error sending message");
   }
 });
@@ -188,7 +168,6 @@ app.post('/send/:userId', async (req, res) => {
 app.post('/logout/:userId', async (req, res) => {
 
   const { userId } = req.params;
-
   const userClient = clients[userId];
 
   if (!userClient) {
@@ -196,37 +175,20 @@ app.post('/logout/:userId', async (req, res) => {
   }
 
   try {
+    await userClient.client.logout().catch(() => {});
+    await userClient.client.destroy().catch(() => {});
+  } catch {}
 
-    // Try logout (ignore failure)
-    try {
-      await userClient.client.logout();
-    } catch (e) {
-      console.log("Logout error ignored");
-    }
-
-    // Always destroy
-    try {
-      await userClient.client.destroy();
-    } catch (e) {
-      console.log("Destroy error ignored");
-    }
-
-  } catch (e) {
-    console.log("General logout error");
-  }
-
-  
-
-  // Always delete from memory
   delete clients[userId];
 
-  console.log(`User ${userId} fully logged out`);
-
-  return res.json({ success: true });
+  res.json({ success: true });
 });
 
- const PORT = process.env.PORT;
+/* ===============================
+   START SERVER
+=================================*/
+const PORT = process.env.PORT;
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
