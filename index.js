@@ -31,21 +31,21 @@ function createClient(userId) {
   const client = new Client({
     authStrategy: new LocalAuth({
       clientId: userId,
-      dataPath: '/app/.wwebjs_auth' // ⚠️ Mount Railway Volume Here
+      dataPath: '/app/.wwebjs_auth'
     }),
     puppeteer: {
-  headless: "new",
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--disable-software-rasterizer',
-    '--no-zygote',
-    '--single-process'
-  ]
-}
+      headless: "new",
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--no-zygote',
+        '--single-process'
+      ]
+    }
   });
 
   clients[userId] = {
@@ -56,12 +56,8 @@ function createClient(userId) {
 
   client.on('qr', async (qr) => {
     console.log(`QR RECEIVED for ${userId}`);
-    try {
-      clients[userId].qr = await qrcode.toDataURL(qr);
-      clients[userId].ready = false;
-    } catch (e) {
-      console.log("QR generation error:", e);
-    }
+    clients[userId].qr = await qrcode.toDataURL(qr);
+    clients[userId].ready = false;
   });
 
   client.on('ready', () => {
@@ -72,19 +68,13 @@ function createClient(userId) {
 
   client.on('disconnected', async (reason) => {
     console.log(`User ${userId} disconnected:`, reason);
-
     try { await client.destroy(); } catch {}
-
     delete clients[userId];
-
-    // recreate after small delay
-    
+  });
 
   client.on('auth_failure', async (msg) => {
     console.log(`Auth failure for ${userId}:`, msg);
-
     try { await client.destroy(); } catch {}
-
     delete clients[userId];
   });
 
@@ -197,7 +187,7 @@ app.post('/logout/:userId', async (req, res) => {
 });
 
 /* ===============================
-   KEEP SERVER ALIVE (RAILWAY FIX)
+   KEEP SERVER ALIVE
 =================================*/
 setInterval(() => {
   console.log("Server heartbeat...");
