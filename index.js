@@ -7,22 +7,20 @@ const { Client, LocalAuth } = pkg;
 
 const app = express();
 
-
-
 /* ===============================
-   BASIC SAFETY CHECK
+   ENV CHECK
 =================================*/
+
 const ALLOWED_USER = process.env.ALLOWED_USER || null;
 
 if (!ALLOWED_USER) {
-   const { userId } = req.params;
-console.log("Incoming UID:", userId);
-console.log("Allowed UID:", ALLOWED_USER);
   console.log("⚠ ALLOWED_USER missing but server continuing...");
 }
+
 /* ===============================
    CORS
 =================================*/
+
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"],
@@ -36,25 +34,27 @@ let qrCode = null;
 let isReady = false;
 
 /* ===============================
-   HEALTH CHECK
+   HEALTH
 =================================*/
+
 app.get("/", (req, res) => {
   res.send("Server running ✅");
 });
 
 /* ===============================
-   CREATE CLIENT (ONLY 1 USER)
+   CREATE CLIENT
 =================================*/
+
 async function createClient(userId) {
 
   if (userId !== ALLOWED_USER) {
-    console.log("🚫 Unauthorized user tried to connect:", userId);
+    console.log("🚫 Unauthorized user:", userId);
     return;
   }
 
   if (clientInstance) return;
 
-  console.log(`Creating client for allowed user: ${userId}`);
+  console.log("Creating WhatsApp client for:", userId);
 
   const client = new Client({
     authStrategy: new LocalAuth({
@@ -120,9 +120,13 @@ async function createClient(userId) {
 /* ===============================
    STATUS
 =================================*/
+
 app.get('/status/:userId', (req, res) => {
 
-  
+  const { userId } = req.params;
+
+  console.log("Incoming UID:", userId);
+  console.log("Allowed UID:", ALLOWED_USER);
 
   if (userId !== ALLOWED_USER)
     return res.json({ status: "unauthorized" });
@@ -142,6 +146,7 @@ app.get('/status/:userId', (req, res) => {
 /* ===============================
    QR
 =================================*/
+
 app.get('/qr/:userId', (req, res) => {
 
   const { userId } = req.params;
@@ -171,8 +176,9 @@ app.get('/qr/:userId', (req, res) => {
 });
 
 /* ===============================
-   SEND MESSAGE (STABLE)
+   SEND
 =================================*/
+
 app.post('/send/:userId', async (req, res) => {
 
   try {
@@ -209,6 +215,7 @@ app.post('/send/:userId', async (req, res) => {
 /* ===============================
    LOGOUT
 =================================*/
+
 app.post('/logout/:userId', async (req, res) => {
 
   const { userId } = req.params;
@@ -233,13 +240,15 @@ app.post('/logout/:userId', async (req, res) => {
 /* ===============================
    KEEP ALIVE
 =================================*/
+
 setInterval(() => {
   console.log("Server heartbeat...");
 }, 30000);
 
 /* ===============================
-   START SERVER
+   START
 =================================*/
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, '0.0.0.0', () => {
