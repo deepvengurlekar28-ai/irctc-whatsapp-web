@@ -15,8 +15,7 @@ const ALLOWED_USER = process.env.ALLOWED_USER || null;
 
 if (!ALLOWED_USER) {
   console.log("⚠ ALLOWED_USER missing but server continuing...");
-   console.log("Incoming UID:", userId); 
-   console.log("Allowed UID:", ALLOWED_USER);
+   
 }
 
 /* ===============================
