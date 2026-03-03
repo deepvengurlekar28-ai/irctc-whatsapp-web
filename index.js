@@ -159,10 +159,9 @@ app.get('/qr/:userId', (req, res) => {
    SEND MESSAGE
 =================================*/
 app.post('/send/:userId', async (req, res) => {
-
   try {
     const { userId } = req.params;
-    const { number, message } = req.body;
+    let { number, message } = req.body;
 
     if (!number || !message) {
       return res.status(400).send("Number and message required");
@@ -178,24 +177,30 @@ app.post('/send/:userId', async (req, res) => {
       return res.status(400).send("WhatsApp not ready");
     }
 
-    await userClient.client.sendMessage(`${number}@c.us`, message);
+    // ✅ Normalize number
+    number = number.replace(/\D/g, '');
 
-    return res.send("Message Sent ✅");
+    const chatId = `${number}@c.us`;
 
-  } catch (error) {
+    // ✅ Step 1: Check if registered
+    const isRegistered = await userClient.client.isRegisteredUser(chatId);
 
-    console.log("SEND ERROR:", error);
+    if (!isRegistered) {
+      return res.status(400).send("Number not registered on WhatsApp");
+    }
 
-    // if chromium crashed → destroy client safely
-    try {
-      await clients[req.params.userId]?.client.destroy();
-    } catch {}
+    // ✅ Step 2: Get chat first (forces LID resolution)
+    await userClient.client.getChatById(chatId).catch(() => null);
 
-    delete clients[req.params.userId];
+    // ✅ Step 3: Send message
+    await userClient.client.sendMessage(chatId, message);
 
-    return res.status(500).send("WhatsApp session crashed. Reconnect required.");
+    res.send("Message sent ✅");
+
+  } catch (err) {
+    console.error("SEND ERROR:", err);
+    res.status(500).send("Send failed");
   }
-
 });
 /* ===============================
    LOGOUT
