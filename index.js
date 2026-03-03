@@ -7,8 +7,18 @@ const { Client, LocalAuth } = pkg;
 
 const app = express();
 
+const ALLOWED_USER = process.env.ALLOWED_USER;
+
 /* ===============================
-   CORS FIX (IMPORTANT)
+   BASIC SAFETY CHECK
+=================================*/
+if (!ALLOWED_USER) {
+  console.log("❌ ALLOWED_USER not set in environment variables");
+  process.exit(1);
+}
+
+/* ===============================
+   CORS
 =================================*/
 app.use(cors({
   origin: "*",
@@ -18,7 +28,9 @@ app.use(cors({
 
 app.use(express.json());
 
-const clients = {};
+let clientInstance = null;
+let qrCode = null;
+let isReady = false;
 
 /* ===============================
    HEALTH CHECK
@@ -28,13 +40,18 @@ app.get("/", (req, res) => {
 });
 
 /* ===============================
-   CREATE CLIENT
+   CREATE CLIENT (ONLY 1 USER)
 =================================*/
-function createClient(userId) {
+async function createClient(userId) {
 
-  if (clients[userId]) return;
+  if (userId !== ALLOWED_USER) {
+    console.log("🚫 Unauthorized user tried to connect:", userId);
+    return;
+  }
 
-  console.log(`Creating client for user: ${userId}`);
+  if (clientInstance) return;
+
+  console.log(`Creating client for allowed user: ${userId}`);
 
   const client = new Client({
     authStrategy: new LocalAuth({
@@ -42,61 +59,56 @@ function createClient(userId) {
       dataPath: './.wwebjs_auth'
     }),
     puppeteer: {
-  headless: true,
-  protocolTimeout: 180000,
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--no-zygote',
-    '--single-process'
-  ]
-}
+      headless: true,
+      protocolTimeout: 180000,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
+        '--single-process'
+      ]
+    }
   });
 
-  clients[userId] = {
-    client,
-    qr: null,
-    ready: false
-  };
+  clientInstance = client;
 
   client.on('qr', async (qr) => {
-    console.log(`QR RECEIVED for ${userId}`);
-    clients[userId].qr = await qrcode.toDataURL(qr);
-    clients[userId].ready = false;
+    console.log("QR RECEIVED");
+    qrCode = await qrcode.toDataURL(qr);
+    isReady = false;
   });
 
   client.on('ready', () => {
-    console.log(`User ${userId} WhatsApp Ready`);
-    clients[userId].ready = true;
-    clients[userId].qr = null;
+    console.log("WhatsApp Ready ✅");
+    isReady = true;
+    qrCode = null;
   });
 
   client.on('authenticated', () => {
-    console.log(`User ${userId} authenticated`);
+    console.log("Authenticated");
   });
 
   client.on('disconnected', async (reason) => {
-    console.log(`User ${userId} disconnected:`, reason);
+    console.log("Disconnected:", reason);
     try { await client.destroy(); } catch {}
-    delete clients[userId];
+    clientInstance = null;
+    isReady = false;
   });
 
-  client.on('auth_failure', async (msg) => {
-    console.log(`Auth failure for ${userId}:`, msg);
+  client.on('auth_failure', async () => {
+    console.log("Auth failure");
     try { await client.destroy(); } catch {}
-    delete clients[userId];
+    clientInstance = null;
+    isReady = false;
   });
 
   client.on('error', async (err) => {
     console.log("Client error:", err);
     try { await client.destroy(); } catch {}
-    delete clients[userId];
-
-    setTimeout(() => {
-      createClient(userId);
-    }, 5000);
+    clientInstance = null;
+    isReady = false;
   });
 
   client.initialize();
@@ -108,19 +120,18 @@ function createClient(userId) {
 app.get('/status/:userId', (req, res) => {
 
   const { userId } = req.params;
-  const userClient = clients[userId];
 
-  if (!userClient) {
+  if (userId !== ALLOWED_USER)
+    return res.json({ status: "unauthorized" });
+
+  if (!clientInstance)
     return res.json({ status: "not_initialized" });
-  }
 
-  if (userClient.ready) {
+  if (isReady)
     return res.json({ status: "ready" });
-  }
 
-  if (userClient.qr) {
+  if (qrCode)
     return res.json({ status: "qr_ready" });
-  }
 
   return res.json({ status: "initializing" });
 });
@@ -132,20 +143,22 @@ app.get('/qr/:userId', (req, res) => {
 
   const { userId } = req.params;
 
-  if (!clients[userId]) {
+  if (userId !== ALLOWED_USER)
+    return res.send("Unauthorized");
+
+  if (!clientInstance) {
     createClient(userId);
     return res.send("Generating QR...");
   }
 
-  if (clients[userId].ready) {
+  if (isReady)
     return res.send("WhatsApp already connected ✅");
-  }
 
-  if (clients[userId].qr) {
+  if (qrCode) {
     return res.send(`
       <html>
         <body style="margin:0;display:flex;justify-content:center;align-items:center;background:white;">
-          <img src="${clients[userId].qr}" width="380" height="380"/>
+          <img src="${qrCode}" width="380" height="380"/>
         </body>
       </html>
     `);
@@ -155,7 +168,7 @@ app.get('/qr/:userId', (req, res) => {
 });
 
 /* ===============================
-   SEND MESSAGE (STABLE VERSION)
+   SEND MESSAGE (STABLE)
 =================================*/
 app.post('/send/:userId', async (req, res) => {
 
@@ -163,52 +176,31 @@ app.post('/send/:userId', async (req, res) => {
     const { userId } = req.params;
     let { number, message } = req.body;
 
-    if (!number || !message)
-      return res.status(400).send("Number and message required");
+    if (userId !== ALLOWED_USER)
+      return res.status(403).send("Unauthorized");
 
-    const userClient = clients[userId];
-
-    if (!userClient || !userClient.ready)
+    if (!clientInstance || !isReady)
       return res.status(400).send("WhatsApp not ready");
 
     number = number.replace(/\D/g, '');
-    const chatId = `${number}@c.us`;
 
-    // 🔥 STEP 1: Force resolve contact
-    const numberId = await userClient.client.getNumberId(number);
+    const numberId = await clientInstance.getNumberId(number);
 
-    if (!numberId) {
+    if (!numberId)
       return res.status(400).send("Number not on WhatsApp");
-    }
 
-    // 🔥 STEP 2: Get chat first (IMPORTANT)
-    const chat = await userClient.client.getChatById(numberId._serialized);
-
-    // 🔥 STEP 3: Small delay (important for Railway CPU)
     await new Promise(r => setTimeout(r, 1500));
 
-    // 🔥 STEP 4: Send message
-    await userClient.client.sendMessage(chat.id._serialized, message);
+    await clientInstance.sendMessage(numberId._serialized, message);
 
-    // small cooldown
     await new Promise(r => setTimeout(r, 2000));
 
     res.send("Message sent ✅");
 
   } catch (err) {
-
     console.log("SEND ERROR:", err);
-
-    // 🔥 Auto recovery
-    try {
-      await clients[req.params.userId]?.client.destroy();
-    } catch {}
-
-    delete clients[req.params.userId];
-
-    res.status(500).send("Session refreshed. Please reconnect.");
+    res.status(500).send("Send failed");
   }
-
 });
 
 /* ===============================
@@ -217,18 +209,20 @@ app.post('/send/:userId', async (req, res) => {
 app.post('/logout/:userId', async (req, res) => {
 
   const { userId } = req.params;
-  const userClient = clients[userId];
 
-  if (!userClient) {
+  if (userId !== ALLOWED_USER)
+    return res.json({ success: false });
+
+  if (!clientInstance)
     return res.json({ success: true });
-  }
 
   try {
-    await userClient.client.logout().catch(() => {});
-    await userClient.client.destroy().catch(() => {});
+    await clientInstance.logout();
+    await clientInstance.destroy();
   } catch {}
 
-  delete clients[userId];
+  clientInstance = null;
+  isReady = false;
 
   res.json({ success: true });
 });
