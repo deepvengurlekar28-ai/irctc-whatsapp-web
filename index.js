@@ -120,6 +120,8 @@ async function createClient(userId) {
 app.get('/status/:userId', (req, res) => {
 
   const { userId } = req.params;
+console.log("Incoming UID:", userId);
+console.log("Allowed UID:", ALLOWED_USER);
 
   if (userId !== ALLOWED_USER)
     return res.json({ status: "unauthorized" });
