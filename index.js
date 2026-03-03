@@ -15,6 +15,9 @@ const app = express();
 const ALLOWED_USER = process.env.ALLOWED_USER || null;
 
 if (!ALLOWED_USER) {
+   const { userId } = req.params;
+console.log("Incoming UID:", userId);
+console.log("Allowed UID:", ALLOWED_USER);
   console.log("⚠ ALLOWED_USER missing but server continuing...");
 }
 /* ===============================
@@ -119,9 +122,7 @@ async function createClient(userId) {
 =================================*/
 app.get('/status/:userId', (req, res) => {
 
-  const { userId } = req.params;
-console.log("Incoming UID:", userId);
-console.log("Allowed UID:", ALLOWED_USER);
+  
 
   if (userId !== ALLOWED_USER)
     return res.json({ status: "unauthorized" });
