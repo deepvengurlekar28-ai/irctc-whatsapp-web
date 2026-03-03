@@ -33,19 +33,17 @@ function createClient(userId) {
       clientId: userId,
       dataPath: '/app/.wwebjs_auth'
     }),
-    puppeteer: {
-      headless: "new",
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--no-zygote',
-        '--single-process'
-      ]
-    }
+   puppeteer: {
+  headless: true,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-zygote',
+    '--single-process'
+  ]
+}
   });
 
   clients[userId] = {
