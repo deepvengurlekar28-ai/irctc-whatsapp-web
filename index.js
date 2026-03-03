@@ -7,16 +7,16 @@ const { Client, LocalAuth } = pkg;
 
 const app = express();
 
-const ALLOWED_USER = process.env.ALLOWED_USER;
+
 
 /* ===============================
    BASIC SAFETY CHECK
 =================================*/
-if (!ALLOWED_USER) {
-  console.log("❌ ALLOWED_USER not set in environment variables");
-  process.exit(1);
-}
+const ALLOWED_USER = process.env.ALLOWED_USER || null;
 
+if (!ALLOWED_USER) {
+  console.log("⚠ ALLOWED_USER missing but server continuing...");
+}
 /* ===============================
    CORS
 =================================*/
