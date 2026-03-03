@@ -42,18 +42,17 @@ function createClient(userId) {
       dataPath: './.wwebjs_auth'
     }),
     puppeteer: {
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      protocolTimeout: 120000, // 🔥 important (2 min)
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-zygote',
-        '--single-process'
-      ]
-    }
+  headless: true,
+  protocolTimeout: 180000,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-zygote',
+    '--single-process'
+  ]
+}
   });
 
   clients[userId] = {
@@ -164,32 +163,50 @@ app.post('/send/:userId', async (req, res) => {
     const { userId } = req.params;
     let { number, message } = req.body;
 
-    if (!number || !message) {
+    if (!number || !message)
       return res.status(400).send("Number and message required");
-    }
 
     const userClient = clients[userId];
 
-    if (!userClient) {
-      return res.status(400).send("Client not initialized");
-    }
-
-    if (!userClient.ready) {
+    if (!userClient || !userClient.ready)
       return res.status(400).send("WhatsApp not ready");
-    }
 
     number = number.replace(/\D/g, '');
-
     const chatId = `${number}@c.us`;
 
-    // Direct send (no freeze check)
-    await userClient.client.sendMessage(chatId, message);
+    // 🔥 STEP 1: Force resolve contact
+    const numberId = await userClient.client.getNumberId(number);
+
+    if (!numberId) {
+      return res.status(400).send("Number not on WhatsApp");
+    }
+
+    // 🔥 STEP 2: Get chat first (IMPORTANT)
+    const chat = await userClient.client.getChatById(numberId._serialized);
+
+    // 🔥 STEP 3: Small delay (important for Railway CPU)
+    await new Promise(r => setTimeout(r, 1500));
+
+    // 🔥 STEP 4: Send message
+    await userClient.client.sendMessage(chat.id._serialized, message);
+
+    // small cooldown
+    await new Promise(r => setTimeout(r, 2000));
 
     res.send("Message sent ✅");
 
   } catch (err) {
-    console.error("SEND ERROR:", err);
-    res.status(500).send("Send failed");
+
+    console.log("SEND ERROR:", err);
+
+    // 🔥 Auto recovery
+    try {
+      await clients[req.params.userId]?.client.destroy();
+    } catch {}
+
+    delete clients[req.params.userId];
+
+    res.status(500).send("Session refreshed. Please reconnect.");
   }
 
 });
