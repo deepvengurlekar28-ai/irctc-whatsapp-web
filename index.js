@@ -7,7 +7,15 @@ const { Client, LocalAuth } = pkg;
 
 const app = express();
 
-app.use(cors({ origin: true, credentials: true }));
+/* ===============================
+   CORS FIX (IMPORTANT)
+=================================*/
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"]
+}));
+
 app.use(express.json());
 
 const clients = {};
@@ -31,17 +39,21 @@ function createClient(userId) {
   const client = new Client({
     authStrategy: new LocalAuth({
       clientId: userId,
-      dataPath: '/app/.wwebjs_auth'
+      dataPath: './.wwebjs_auth'
     }),
-  puppeteer: {
-  headless: true,
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu'
-  ]
-}
+    puppeteer: {
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      protocolTimeout: 120000, // 🔥 important (2 min)
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
+        '--single-process'
+      ]
+    }
   });
 
   clients[userId] = {
@@ -50,28 +62,20 @@ function createClient(userId) {
     ready: false
   };
 
-   client.on('change_state', state => {
-  console.log('State changed:', state);
-});
-
   client.on('qr', async (qr) => {
     console.log(`QR RECEIVED for ${userId}`);
     clients[userId].qr = await qrcode.toDataURL(qr);
     clients[userId].ready = false;
   });
 
-   client.on('authenticated', () => {
-  console.log("Authenticated successfully");
-});
-
-   client.on('loading_screen', (percent, message) => {
-  console.log('Loading:', percent, message);
-});
-
   client.on('ready', () => {
     console.log(`User ${userId} WhatsApp Ready`);
     clients[userId].ready = true;
     clients[userId].qr = null;
+  });
+
+  client.on('authenticated', () => {
+    console.log(`User ${userId} authenticated`);
   });
 
   client.on('disconnected', async (reason) => {
@@ -87,16 +91,14 @@ function createClient(userId) {
   });
 
   client.on('error', async (err) => {
-  console.log("Client error:", err);
+    console.log("Client error:", err);
+    try { await client.destroy(); } catch {}
+    delete clients[userId];
 
-  try { await client.destroy(); } catch {}
-
-  delete clients[userId];
-
-  setTimeout(() => {
-    createClient(userId);
-  }, 3000);
-});
+    setTimeout(() => {
+      createClient(userId);
+    }, 5000);
+  });
 
   client.initialize();
 }
@@ -154,9 +156,10 @@ app.get('/qr/:userId', (req, res) => {
 });
 
 /* ===============================
-   SEND MESSAGE
+   SEND MESSAGE (STABLE VERSION)
 =================================*/
 app.post('/send/:userId', async (req, res) => {
+
   try {
     const { userId } = req.params;
     let { number, message } = req.body;
@@ -175,22 +178,11 @@ app.post('/send/:userId', async (req, res) => {
       return res.status(400).send("WhatsApp not ready");
     }
 
-    // ✅ Normalize number
     number = number.replace(/\D/g, '');
 
     const chatId = `${number}@c.us`;
 
-    // ✅ Step 1: Check if registered
-    const isRegistered = await userClient.client.isRegisteredUser(chatId);
-
-    if (!isRegistered) {
-      return res.status(400).send("Number not registered on WhatsApp");
-    }
-
-    // ✅ Step 2: Get chat first (forces LID resolution)
-    await userClient.client.getChatById(chatId).catch(() => null);
-
-    // ✅ Step 3: Send message
+    // Direct send (no freeze check)
     await userClient.client.sendMessage(chatId, message);
 
     res.send("Message sent ✅");
@@ -199,7 +191,9 @@ app.post('/send/:userId', async (req, res) => {
     console.error("SEND ERROR:", err);
     res.status(500).send("Send failed");
   }
+
 });
+
 /* ===============================
    LOGOUT
 =================================*/
@@ -223,7 +217,7 @@ app.post('/logout/:userId', async (req, res) => {
 });
 
 /* ===============================
-   KEEP SERVER ALIVE
+   KEEP ALIVE
 =================================*/
 setInterval(() => {
   console.log("Server heartbeat...");
@@ -232,7 +226,7 @@ setInterval(() => {
 /* ===============================
    START SERVER
 =================================*/
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
