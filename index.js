@@ -142,6 +142,38 @@ async function createClient(userId) {
    STATUS
 =================================*/
 
+app.get("/groups/:userId", async (req, res) => {
+
+  const { userId } = req.params;
+
+  if (userId !== ALLOWED_USER)
+    return res.status(403).send("Unauthorized");
+
+  if (!clientInstance || !isReady)
+    return res.json([]);
+
+  try {
+
+    const chats = await clientInstance.getChats();
+
+    const groups = chats
+      .filter(chat => chat.isGroup)
+      .map(g => ({
+        name: g.name,
+        id: g.id._serialized
+      }));
+
+    res.json(groups);
+
+  } catch (err) {
+
+    console.log("Group fetch error:", err);
+    res.json([]);
+
+  }
+
+});
+
 app.get('/status/:userId', (req, res) => {
 
   const { userId } = req.params;
@@ -213,22 +245,24 @@ app.post('/send/:userId', async (req, res) => {
   try {
 
     const { userId } = req.params;
-    let { number, message } = req.body;
+   let { number, message, isGroup } = req.body;
 
-    if (userId !== ALLOWED_USER)
-      return res.status(403).send("Unauthorized");
+if(isGroup){
 
-    if (!clientInstance || !isReady)
-      return res.status(400).send("WhatsApp not ready");
+await clientInstance.sendMessage(number, message);
 
-    number = number.replace(/\D/g, '');
+}else{
 
-    const numberId = await clientInstance.getNumberId(number);
+number = number.replace(/\D/g,'');
 
-    if (!numberId)
-      return res.status(400).send("Number not on WhatsApp");
+const numberId = await clientInstance.getNumberId(number);
 
-    await clientInstance.sendMessage(numberId._serialized, message);
+if (!numberId)
+return res.status(400).send("Number not on WhatsApp");
+
+await clientInstance.sendMessage(numberId._serialized, message);
+
+}
 
     res.send("Message sent ✅");
 
