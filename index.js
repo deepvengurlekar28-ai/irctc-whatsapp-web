@@ -8,18 +8,17 @@ const { Client, LocalAuth } = pkg;
 const app = express();
 
 /* ===============================
-   ENV CHECK
+   ENV
 =================================*/
 
 const ALLOWED_USER = process.env.ALLOWED_USER || null;
 
 if (!ALLOWED_USER) {
   console.log("⚠ ALLOWED_USER missing but server continuing...");
-   
 }
 
 /* ===============================
-   CORS
+   MIDDLEWARE
 =================================*/
 
 app.use(cors({
@@ -95,24 +94,45 @@ async function createClient(userId) {
   });
 
   client.on('disconnected', async (reason) => {
+
     console.log("Disconnected:", reason);
+
     try { await client.destroy(); } catch {}
+
     clientInstance = null;
     isReady = false;
+    qrCode = null;
+
+    console.log("Restarting client...");
+
+    setTimeout(() => {
+      createClient(ALLOWED_USER);
+    }, 2000);
+
   });
 
   client.on('auth_failure', async () => {
+
     console.log("Auth failure");
+
     try { await client.destroy(); } catch {}
+
     clientInstance = null;
     isReady = false;
+    qrCode = null;
+
   });
 
   client.on('error', async (err) => {
+
     console.log("Client error:", err);
+
     try { await client.destroy(); } catch {}
+
     clientInstance = null;
     isReady = false;
+    qrCode = null;
+
   });
 
   client.initialize();
@@ -126,14 +146,18 @@ app.get('/status/:userId', (req, res) => {
 
   const { userId } = req.params;
 
-  console.log("Incoming UID:", userId);
-  console.log("Allowed UID:", ALLOWED_USER);
-
   if (userId !== ALLOWED_USER)
     return res.json({ status: "unauthorized" });
 
-  if (!clientInstance)
-    return res.json({ status: "not_initialized" });
+  if (!clientInstance) {
+
+    createClient(userId);
+
+    return res.json({
+      status: "initializing"
+    });
+
+  }
 
   if (isReady)
     return res.json({ status: "ready" });
@@ -142,6 +166,7 @@ app.get('/status/:userId', (req, res) => {
     return res.json({ status: "qr_ready" });
 
   return res.json({ status: "initializing" });
+
 });
 
 /* ===============================
@@ -161,28 +186,32 @@ app.get('/qr/:userId', (req, res) => {
   }
 
   if (isReady)
-    return res.send("WhatsApp already connected ✅");
+    return res.send("WhatsApp already connected");
 
   if (qrCode) {
+
     return res.send(`
       <html>
-        <body style="margin:0;display:flex;justify-content:center;align-items:center;background:white;">
-          <img src="${qrCode}" width="380" height="380"/>
+        <body style="margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:white;">
+          <img src="${qrCode}" width="380"/>
         </body>
       </html>
     `);
+
   }
 
   res.send("Generating QR...");
+
 });
 
 /* ===============================
-   SEND
+   SEND MESSAGE
 =================================*/
 
 app.post('/send/:userId', async (req, res) => {
 
   try {
+
     const { userId } = req.params;
     let { number, message } = req.body;
 
@@ -199,18 +228,17 @@ app.post('/send/:userId', async (req, res) => {
     if (!numberId)
       return res.status(400).send("Number not on WhatsApp");
 
-    await new Promise(r => setTimeout(r, 1500));
-
     await clientInstance.sendMessage(numberId._serialized, message);
-
-    await new Promise(r => setTimeout(r, 2000));
 
     res.send("Message sent ✅");
 
   } catch (err) {
+
     console.log("SEND ERROR:", err);
     res.status(500).send("Send failed");
+
   }
+
 });
 
 /* ===============================
@@ -219,35 +247,38 @@ app.post('/send/:userId', async (req, res) => {
 
 app.get("/logout/:userId", async (req, res) => {
 
-const { userId } = req.params;
+  const { userId } = req.params;
 
-if (userId !== ALLOWED_USER)
-return res.status(403).send("Unauthorized");
+  if (userId !== ALLOWED_USER)
+    return res.status(403).send("Unauthorized");
 
-try {
+  try {
 
-if (!clientInstance)
-return res.json({ status: "no_client" });
+    if (!clientInstance)
+      return res.json({ status: "no_client" });
 
-await clientInstance.logout();
-await clientInstance.destroy();
+    await clientInstance.logout();
+    await clientInstance.destroy();
 
-clientInstance = null;
-isReady = false;
-qrCode = null;
+    clientInstance = null;
+    isReady = false;
+    qrCode = null;
 
-console.log("WhatsApp logged out");
+    console.log("WhatsApp logged out");
 
-createClient(userId); // 🔥 QR regenerate
+    setTimeout(() => {
+      createClient(userId);
+    }, 2000);
 
-res.json({ status: "logged_out" });
+    res.json({ status: "logged_out" });
 
-} catch (err) {
+  } catch (err) {
 
-console.log("Logout error:", err);
-res.status(500).json({ status: "error" });
+    console.log("Logout error:", err);
 
-}
+    res.status(500).json({ status: "error" });
+
+  }
 
 });
 
