@@ -32,6 +32,7 @@ app.use(express.json());
 let clientInstance = null;
 let qrCode = null;
 let isReady = false;
+let cachedGroups = [];
 
 /* ===============================
    HEALTH
@@ -70,7 +71,10 @@ async function createClient(userId) {
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--no-zygote',
-        '--single-process'
+        '--single-process',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-sync'
       ]
     }
   });
@@ -83,10 +87,33 @@ async function createClient(userId) {
     isReady = false;
   });
 
-  client.on('ready', () => {
+  client.on('ready', async () => {
+
     console.log("WhatsApp Ready ✅");
+
     isReady = true;
     qrCode = null;
+
+    /* Preload groups */
+    try {
+
+      const chats = await client.getChats();
+
+      cachedGroups = chats
+        .filter(chat => chat.isGroup)
+        .map(g => ({
+          name: g.name,
+          id: g.id._serialized
+        }));
+
+      console.log("Groups cached:", cachedGroups.length);
+
+    } catch (err) {
+
+      console.log("Group preload error:", err);
+
+    }
+
   });
 
   client.on('authenticated', () => {
@@ -102,6 +129,7 @@ async function createClient(userId) {
     clientInstance = null;
     isReady = false;
     qrCode = null;
+    cachedGroups = [];
 
     console.log("Restarting client...");
 
@@ -120,6 +148,7 @@ async function createClient(userId) {
     clientInstance = null;
     isReady = false;
     qrCode = null;
+    cachedGroups = [];
 
   });
 
@@ -132,6 +161,7 @@ async function createClient(userId) {
     clientInstance = null;
     isReady = false;
     qrCode = null;
+    cachedGroups = [];
 
   });
 
@@ -139,7 +169,7 @@ async function createClient(userId) {
 }
 
 /* ===============================
-   STATUS
+   GROUPS
 =================================*/
 
 app.get("/groups/:userId", async (req, res) => {
@@ -154,6 +184,8 @@ app.get("/groups/:userId", async (req, res) => {
 
   try {
 
+    /* Try fresh fetch */
+
     const chats = await clientInstance.getChats();
 
     const groups = chats
@@ -163,16 +195,25 @@ app.get("/groups/:userId", async (req, res) => {
         id: g.id._serialized
       }));
 
+    cachedGroups = groups;
+
     res.json(groups);
 
   } catch (err) {
 
     console.log("Group fetch error:", err);
-    res.json([]);
+
+    /* fallback to cached groups */
+
+    res.json(cachedGroups || []);
 
   }
 
 });
+
+/* ===============================
+   STATUS
+=================================*/
 
 app.get('/status/:userId', (req, res) => {
 
@@ -245,24 +286,30 @@ app.post('/send/:userId', async (req, res) => {
   try {
 
     const { userId } = req.params;
-   let { number, message, isGroup } = req.body;
+    let { number, message, isGroup } = req.body;
 
-if(isGroup){
+    if (userId !== ALLOWED_USER)
+      return res.status(403).send("Unauthorized");
 
-await clientInstance.sendMessage(number, message);
+    if (!clientInstance || !isReady)
+      return res.status(400).send("WhatsApp not ready");
 
-}else{
+    if (isGroup) {
 
-number = number.replace(/\D/g,'');
+      await clientInstance.sendMessage(number, message);
 
-const numberId = await clientInstance.getNumberId(number);
+    } else {
 
-if (!numberId)
-return res.status(400).send("Number not on WhatsApp");
+      number = number.replace(/\D/g, '');
 
-await clientInstance.sendMessage(numberId._serialized, message);
+      const numberId = await clientInstance.getNumberId(number);
 
-}
+      if (!numberId)
+        return res.status(400).send("Number not on WhatsApp");
+
+      await clientInstance.sendMessage(numberId._serialized, message);
+
+    }
 
     res.send("Message sent ✅");
 
@@ -297,6 +344,7 @@ app.get("/logout/:userId", async (req, res) => {
     clientInstance = null;
     isReady = false;
     qrCode = null;
+    cachedGroups = [];
 
     console.log("WhatsApp logged out");
 
