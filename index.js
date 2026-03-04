@@ -217,22 +217,28 @@ app.post('/send/:userId', async (req, res) => {
    LOGOUT
 =================================*/
 
-app.get("/logout/:uid", async (req, res) => {
+app.get("/logout/:userId", async (req, res) => {
 
-const uid = req.params.uid;
+const { userId } = req.params;
+
+if (userId !== ALLOWED_USER)
+return res.status(403).send("Unauthorized");
 
 try {
 
-const client = clients[uid];
-
-if (!client) {
+if (!clientInstance)
 return res.json({ status: "no_client" });
-}
 
-await client.logout();
-await client.destroy();
+await clientInstance.logout();
+await clientInstance.destroy();
 
-delete clients[uid];
+clientInstance = null;
+isReady = false;
+qrCode = null;
+
+console.log("WhatsApp logged out");
+
+createClient(userId); // 🔥 QR regenerate
 
 res.json({ status: "logged_out" });
 
