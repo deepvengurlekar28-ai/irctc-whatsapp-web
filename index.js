@@ -217,25 +217,32 @@ app.post('/send/:userId', async (req, res) => {
    LOGOUT
 =================================*/
 
-app.post('/logout/:userId', async (req, res) => {
+app.get("/logout/:uid", async (req, res) => {
 
-  const { userId } = req.params;
+const uid = req.params.uid;
 
-  if (userId !== ALLOWED_USER)
-    return res.json({ success: false });
+try {
 
-  if (!clientInstance)
-    return res.json({ success: true });
+const client = clients[uid];
 
-  try {
-    await clientInstance.logout();
-    await clientInstance.destroy();
-  } catch {}
+if (!client) {
+return res.json({ status: "no_client" });
+}
 
-  clientInstance = null;
-  isReady = false;
+await client.logout();
+await client.destroy();
 
-  res.json({ success: true });
+delete clients[uid];
+
+res.json({ status: "logged_out" });
+
+} catch (err) {
+
+console.log("Logout error:", err);
+res.status(500).json({ status: "error" });
+
+}
+
 });
 
 /* ===============================
