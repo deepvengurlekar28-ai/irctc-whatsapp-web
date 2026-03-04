@@ -89,32 +89,31 @@ async function createClient(userId) {
 
   client.on('ready', async () => {
 
-    console.log("WhatsApp Ready ✅");
+  console.log("WhatsApp Ready ✅");
 
-    isReady = true;
-    qrCode = null;
+  isReady = true;
+  qrCode = null;
 
-    /* Preload groups */
-    try {
+  try{
 
-      const chats = await client.getChats();
+    const chats = await client.getChats();
 
-      cachedGroups = chats
-        .filter(chat => chat.isGroup)
-        .map(g => ({
-          name: g.name,
-          id: g.id._serialized
-        }));
+    cachedGroups = chats
+      .filter(chat => chat.isGroup)
+      .map(g => ({
+        name: g.name,
+        id: g.id._serialized
+      }));
 
-      console.log("Groups cached:", cachedGroups.length);
+    console.log("Cached groups:", cachedGroups.length);
 
-    } catch (err) {
+  }catch(err){
 
-      console.log("Group preload error:", err);
+    console.log("Group preload error:",err);
 
-    }
+  }
 
-  });
+});
 
   client.on('authenticated', () => {
     console.log("Authenticated");
@@ -184,27 +183,29 @@ app.get("/groups/:userId", async (req, res) => {
 
   try {
 
-    /* Try fresh fetch */
+    // if cached groups exist return them
+    if(cachedGroups.length){
+      return res.json(cachedGroups);
+    }
 
     const chats = await clientInstance.getChats();
 
-    const groups = chats
+    cachedGroups = chats
       .filter(chat => chat.isGroup)
       .map(g => ({
         name: g.name,
         id: g.id._serialized
       }));
 
-    cachedGroups = groups;
+    console.log("Groups loaded:", cachedGroups.length);
 
-    res.json(groups);
+    res.json(cachedGroups);
 
   } catch (err) {
 
     console.log("Group fetch error:", err);
 
-    /* fallback to cached groups */
-
+    // return cached groups instead of crashing
     res.json(cachedGroups || []);
 
   }
